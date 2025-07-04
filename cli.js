@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 const { Command } = require('commander');
-const { run } = require('./db');
+const { run, db } = require('./db');
 const { execSync } = require('child_process');
 
 const program = new Command();
 program.version('1.0.0');
 
-// Reusable function to check if SQL is mutating
+// Helper to check if SQL modifies the DB
 function isMutating(sql) {
   const sqlUpper = sql.trim().toUpperCase();
   return (
@@ -19,7 +19,19 @@ function isMutating(sql) {
   );
 }
 
-// INSERT command
+// Helper to safely commit if there are changes
+function safeGitCommit(message) {
+  const timestamp = new Date().toISOString();
+  try {
+    execSync('git add -f data.db');
+    // Commit only if there are actual staged changes
+    execSync(`git diff --cached --quiet || git commit -m "${message}@${timestamp}"`);
+  } catch (e) {
+    console.error("❌ Git commit skipped or failed:", e.message);
+  }
+}
+
+// INSERT
 program
   .command('insert')
   .description('Insert into a table')
@@ -27,12 +39,11 @@ program
   .requiredOption('--name <name>', 'Name to insert')
   .action(async (opts) => {
     await run(`INSERT INTO ${opts.table}(name) VALUES(?)`, [opts.name]);
-    execSync('git add data.db');
-    execSync(`git commit -m "INSERT@${new Date().toISOString()}"`);
+    safeGitCommit("INSERT");
     console.log(`✅ Inserted "${opts.name}" into "${opts.table}"`);
   });
 
-// DELETE command
+// DELETE
 program
   .command('delete')
   .description('Delete a row by ID')
@@ -40,21 +51,30 @@ program
   .requiredOption('--id <id>', 'Row ID')
   .action(async (opts) => {
     await run(`DELETE FROM ${opts.table} WHERE id = ?`, [opts.id]);
-    execSync('git add data.db');
-    execSync(`git commit -m "DELETE@${new Date().toISOString()}"`);
+    safeGitCommit("DELETE");
     console.log(`🗑️ Deleted ID ${opts.id} from "${opts.table}"`);
   });
 
-// HISTORY command
+// SELECT ALL
 program
-  .command('history')
-  .description('Show Git commit history')
-  .action(() => {
-    const log = execSync('git log --oneline').toString();
-    console.log(`📜 Git History:\n${log}`);
+  .command('select')
+  .description('Select all rows from a table')
+  .requiredOption('--table <table>', 'Table name')
+  .action(async (opts) => {
+    try {
+      db.all(`SELECT * FROM ${opts.table}`, [], (err, rows) => {
+        if (err) {
+          console.error('❌ Select failed:', err.message);
+        } else {
+          console.log(`📄 Rows from "${opts.table}":\n`, rows);
+        }
+      });
+    } catch (e) {
+      console.error('❌ Error:', e.message);
+    }
   });
 
-// EXEC command
+// RAW SQL EXEC
 program
   .command('exec')
   .description('Run any SQL')
@@ -63,15 +83,26 @@ program
     try {
       await run(opts.sql);
       console.log(`✅ Executed: ${opts.sql}`);
-
       if (isMutating(opts.sql)) {
-        execSync('git add -f data.db');
-        execSync(`git commit -m "DDL/DML@${new Date().toISOString()}"`);
+        safeGitCommit("DDL/DML");
       }
     } catch (e) {
       console.error('❌ Error:', e.message);
     }
   });
 
-// Parse the CLI args
+// GIT HISTORY
+program
+  .command('history')
+  .description('Show Git commit history')
+  .action(() => {
+    try {
+      const log = execSync('git log --oneline').toString();
+      console.log(`📜 Git History:\n${log}`);
+    } catch (e) {
+      console.error("❌ Couldn't read Git history:", e.message);
+    }
+  });
+
+// Finalize CLI setup
 program.parse(process.argv);

@@ -26,4 +26,4 @@ function run(sql, params = []) {
   });
 }
 
-module.exports = { run };
+module.exports = { db, run }; // ✅ Make sure this line includes `db`
