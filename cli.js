@@ -31,7 +31,7 @@ function safeGitCommit(message) {
   }
 }
 
-// INSERT
+// INSERT (simple version, just name)
 program
   .command('insert')
   .description('Insert into a table')
@@ -55,43 +55,36 @@ program
     console.log(`🗑️ Deleted ID ${opts.id} from "${opts.table}"`);
   });
 
-// SELECT ALL
-program
-  .command('select')
-  .description('Select all rows from a table')
-  .requiredOption('--table <table>', 'Table name')
-  .action(async (opts) => {
-    try {
-      db.all(`SELECT * FROM ${opts.table}`, [], (err, rows) => {
-        if (err) {
-          console.error('❌ Select failed:', err.message);
-        } else {
-          console.log(`📄 Rows from "${opts.table}":\n`, rows);
-        }
-      });
-    } catch (e) {
-      console.error('❌ Error:', e.message);
-    }
-  });
-
-// RAW SQL EXEC
+// EXEC (handles both SELECT + DML/DDL)
 program
   .command('exec')
   .description('Run any SQL')
   .requiredOption('-q, --sql <sql>', 'The SQL to execute')
   .action(async (opts) => {
     try {
-      await run(opts.sql);
-      console.log(`✅ Executed: ${opts.sql}`);
-      if (isMutating(opts.sql)) {
-        safeGitCommit("DDL/DML");
+      const sql = opts.sql.trim().toUpperCase();
+
+      if (sql.startsWith("SELECT")) {
+        db.all(opts.sql, [], (err, rows) => {
+          if (err) {
+            console.error('❌ Select failed:', err.message);
+          } else {
+            console.log(`📄 Result:\n`, rows);
+          }
+        });
+      } else {
+        await run(opts.sql);
+        console.log(`✅ Executed: ${opts.sql}`);
+        if (isMutating(opts.sql)) {
+          safeGitCommit("DDL/DML");
+        }
       }
     } catch (e) {
       console.error('❌ Error:', e.message);
     }
   });
 
-// GIT HISTORY
+// HISTORY
 program
   .command('history')
   .description('Show Git commit history')
